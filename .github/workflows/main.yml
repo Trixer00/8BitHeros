@@ -187,7 +187,7 @@ jobs:
 
   debug-build-artifacts:
     name: Debug Build Artifacts
-    if: inputs.workflowDebug == true
+    if: always()
     needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
