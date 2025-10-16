@@ -47,74 +47,8 @@ env:
   VERSION_SUFFIX: -beta
 
 jobs:
-  check-tokens:
-    name: Check the access tokens used for publishing
-    runs-on: ubuntu-latest
-    if: inputs.packagingDebug != true && inputs.skipForumPublish != true
-    outputs:
-      publish-github: ${{ secrets.MY_RELEASE_TOKEN != '' }}
-    steps:
-      - id: dump-token-state
-        name: Log the state of the tokens
-        env:
-          PUBLISH_GITHUB: ${{ secrets.MY_RELEASE_TOKEN != '' }}
-        run: |
-          echo "PUBLISH_GITHUB='$PUBLISH_GITHUB'"
-
   generate-keys:
     name: Generate Version-Specific Network Keys
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Cache binaries
-      uses: actions/cache@v4.2.0
-      id: cache-binaries
-      with:
-        key: ${{ runner.os }}-binaries-keys-${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}-${{ hashFiles('/*.props', 'Intersect*/**/*.cs*', 'Framework/**/*.cs*') }}
-        path: |
-          Intersect*/bin/Release/**/*
-
-    - name: Setup dotnet
-      if: steps.cache-binaries.outputs.cache-hit != 'true' || inputs.forceBuild == true || inputs.forceRestore == true
-      uses: actions/setup-dotnet@v4.1.0
-      with:
-        dotnet-version: 8.0.x
-
-    - name: Cache NuGet dependencies
-      uses: actions/cache@v4.2.0
-      id: cache-nuget
-      if: steps.cache-binaries.outputs.cache-hit != 'true' || inputs.forceBuild == true || inputs.forceRestore == true
-      with:
-        key: ${{ runner.os }}-nuget-${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}-${{ hashFiles('/*.props', 'Intersect*/*.csproj', 'Framework/*/*.csproj') }}
-        path: |
-          ~/.nuget/packages
-          Intersect*/obj/
-
-    - name: Apply environment patches
-      run: git apply disable-windows-only.patch
-
-    - name: Restore NuGet Packages
-      if: steps.cache-binaries.outputs.cache-hit != 'true' && steps.cache-nuget.outputs.cache-hit != 'true' || inputs.forceRestore == true
-      run: dotnet restore Intersect.sln
-
-    - name: Build Intersect.Network
-      if: steps.cache-binaries.outputs.cache-hit != 'true' || inputs.forceBuild == true || inputs.forceRestore == true
-      run: dotnet build Intersect.Network/Intersect.Network.csproj --sc -r linux-x64 -p:Configuration=Release -p:PackageVersion=${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}.${{ github.run_number }}+build.${{ github.sha }} -p:Version=${{ env.VERSION_PREFIX }}.${{ github.run_number }}
-
-    - name: Upload keys
-      uses: actions/upload-artifact@v4.5.0
-      with:
-        if-no-files-found: error
-        name: keys
-        path: ./Intersect.Network/bin/Release/keys/*
-
-  build-linux:
-    name: Build for Linux
-    needs: [generate-keys]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -126,12 +60,11 @@ jobs:
         uses: actions/cache@v4.2.0
         id: cache-binaries
         with:
-          key: ${{ runner.os }}-binaries-${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}-${{ hashFiles('/*.props', 'Intersect*/**/*.cs*', 'Framework/**/*.cs*') }}
+          key: ${{ runner.os }}-binaries-keys-${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}-${{ hashFiles('/*.props', 'Intersect*/**/*.cs*', 'Framework/**/*.cs*') }}
           path: |
             Intersect*/bin/Release/**/*
 
       - name: Setup dotnet
-        if: steps.cache-binaries.outputs.cache-hit != 'true' || inputs.forceBuild == true || inputs.forceRestore == true
         uses: actions/setup-dotnet@v4.1.0
         with:
           dotnet-version: 8.0.x
@@ -139,7 +72,6 @@ jobs:
       - name: Cache NuGet dependencies
         uses: actions/cache@v4.2.0
         id: cache-nuget
-        if: steps.cache-binaries.outputs.cache-hit != 'true' || inputs.forceBuild == true || inputs.forceRestore == true
         with:
           key: ${{ runner.os }}-nuget-${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}-${{ hashFiles('/*.props', 'Intersect*/*.csproj', 'Framework/*/*.csproj') }}
           path: |
@@ -150,8 +82,32 @@ jobs:
         run: git apply disable-windows-only.patch
 
       - name: Restore NuGet Packages
-        if: steps.cache-binaries.outputs.cache-hit != 'true' && steps.cache-nuget.outputs.cache-hit != 'true' || inputs.forceRestore == true
         run: dotnet restore Intersect.sln
+
+      - name: Build Intersect.Network
+        run: dotnet build Intersect.Network/Intersect.Network.csproj --sc -r linux-x64 -p:Configuration=Release -p:PackageVersion=${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}.${{ github.run_number }}+build.${{ github.sha }} -p:Version=${{ env.VERSION_PREFIX }}.${{ github.run_number }}
+
+      - name: Upload keys
+        uses: actions/upload-artifact@v4.5.0
+        with:
+          if-no-files-found: error
+          name: keys
+          path: ./Intersect.Network/bin/Release/keys/*
+
+  build-linux:
+    name: Build for Linux
+    needs: [generate-keys]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v4.1.0
+        with:
+          dotnet-version: 8.0.x
 
       - name: Download keys
         uses: actions/download-artifact@v4.1.8
@@ -160,7 +116,6 @@ jobs:
           path: ./Intersect.Network/bin/Release/keys/
 
       - name: Build solution
-        if: steps.cache-binaries.outputs.cache-hit != 'true' || inputs.forceBuild == true || inputs.forceRestore == true
         run: dotnet publish Intersect.sln --sc -r linux-x64 -p:Configuration=Release -p:PackageVersion=${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}.${{ github.run_number }}+build.${{ github.sha }} -p:Version=${{ env.VERSION_PREFIX }}.${{ github.run_number }}
 
       - name: Tarball artifacts to maintain unix file permissions
@@ -191,7 +146,7 @@ jobs:
       - name: Build solution
         run: dotnet publish Intersect.sln --sc -r osx-x64 -p:Configuration=Release -p:PackageVersion=${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}.${{ github.run_number }}+build.${{ github.sha }}
 
-      - name: Tarball artifacts
+      - name: Tarball artifacts to maintain unix file permissions
         run: tar -cvf osx.tar Intersect.Client/bin/Release/*/*/publish Intersect.Server/bin/Release/*/*/publish
 
       - name: Upload artifacts
@@ -219,7 +174,7 @@ jobs:
       - name: Build solution
         run: dotnet publish Intersect.sln --sc -r win-x64 -p:Configuration=Release -p:PackageVersion=${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}.${{ github.run_number }}+build.${{ github.sha }}
 
-      - name: Tarball artifacts
+      - name: Tarball artifacts to maintain unix file permissions
         run: tar -cvf win.tar Intersect.Client/bin/Release/*/*/publish Intersect.Editor/bin/Release/*/*/publish Intersect.Server/bin/Release/*/*/publish
         shell: bash
 
@@ -230,11 +185,33 @@ jobs:
           name: engine-${{ runner.os }}
           path: win.tar
 
+  debug-build-artifacts:
+    name: Debug Build Artifacts
+    if: inputs.workflowDebug == true
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4.1.8
+        with:
+          pattern: engine-*
+          merge-multiple: true
+          path: .
+
+      - name: Extract build archives
+        run: |
+          tar -xvf linux.tar
+          tar -xvf osx.tar
+          tar -xvf win.tar
+
+      - name: Debug output
+        run: ls -laR .
+
   publish-github:
     name: Publish GitHub Release
-    needs: [build-linux, build-macos, build-windows, check-tokens]
+    needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
-    if: inputs.workflowDebug != true && needs.check-tokens.outputs.publish-github == 'true'
+    if: inputs.workflowDebug != true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -258,8 +235,9 @@ jobs:
           artifacts: "linux.tar, osx.tar, win.tar"
           commit: ${{ github.sha }}
           repository: ${{ github.repository }}
-          token: ${{ secrets.MY_RELEASE_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           generateReleaseNotes: true
           name: ${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}.${{ github.run_number }}
-          prerelease: true
           tag: v${{ env.VERSION_PREFIX }}${{ env.VERSION_SUFFIX }}.${{ github.run_number }}
+          makeLatest: true
+          prerelease: false
